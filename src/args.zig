@@ -1,35 +1,34 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const clap = @import("clap");
 
-pub const Commands = enum {
+pub const Command = enum {
     repos,
     pkgs,
     config,
     sync,
+    ln,
 };
 
 pub const Args = struct {
     help: bool,
     verbose: bool,
-    n_commands: usize,
-    commands: []const Commands,
-    file: [:0]const u8,
-    gpa: std.heap.GeneralPurposeAllocator(.{}),
+    commands: []const Command,
+    config_file: [:0]const u8,
+    allocator: Allocator,
 
-    pub fn init() !Args {
-        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-        const allocator = gpa.allocator();
-
+    pub fn init(allocator: Allocator) !Args {
         const params = comptime clap.parseParamsComptime(
-            \\-h, --help             Display this help and exit.
-            \\-v, --verbose          Print verbose output, useful for debugging
-            \\<FILE> <COMMANDS>...
+            \\-h, --help           Display this help and exit.
+            \\-v, --verbose        Print verbose output, useful for debugging.
+            \\-c, --config  <PATH> Path to the config file; defaults to $XDG_CONFIG_HOME/syke/syke.lua.
+            \\<COMMAND>...
             \\
         );
 
         const parsers = comptime .{
-            .FILE = clap.parsers.string,
-            .COMMANDS = clap.parsers.enumeration(Commands),
+            .PATH = clap.parsers.string,
+            .COMMAND = clap.parsers.enumeration(Command),
         };
 
         var diag = clap.Diagnostic{};
@@ -37,7 +36,7 @@ pub const Args = struct {
             .diagnostic = &diag,
             .allocator = allocator,
         }) catch |err| {
-            diag.report(std.io.getStdErr().writer(), err) catch {};
+            try diag.report(std.io.getStdErr().writer(), err);
             return err;
         };
         defer res.deinit();
@@ -45,29 +44,44 @@ pub const Args = struct {
         const help = res.args.help != 0;
         const verbose = res.args.verbose != 0;
 
-        if (res.positionals.len == 0) {
-            // TODO: throw error
+        if (help) {
+            try clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{});
         }
 
-        // TODO: check if file exists
-        // NOTE: this is needed to "cast" the file name from a []const u8 to [:0]const u8 (which lua.doFile expects)
-        const file = try std.fmt.allocPrintZ(allocator, "{s}", .{res.positionals[0]});
-        var n_commands = res.positionals.len - 1;
-        var commands = try allocator.alloc(Commands, n_commands);
+        var config_file: [:0]const u8 = undefined;
+        if (res.args.config) |c| {
+            // NOTE: this is needed to "cast" the file name from a []const u8 to
+            // [:0]const u8 (which lua.doFile expects)
+            config_file = try std.fmt.allocPrintZ(allocator, "{s}", .{c});
+        } else {
+            config_file = "/Users/tommy/.config/syke/syke.lua";
+        }
+        // NOTE: I'm explicitly NOT checking whether this file exists, in order
+        // to avoid Time-Of-Check-Time-Of-Use race conditions. Let the process
+        // of opening file do this check and the necessary error handling.
+
+        var n_commands = res.positionals.len;
+        var commands = try allocator.alloc(Command, if (n_commands == 0) 1 else n_commands);
         if (n_commands == 0) {
-            commands[0] = Commands.sync;
+            commands[0] = Command.sync;
             n_commands = 1;
         } else {
-            // TODO: iter through the remaining args and parse them to Commands
+            for (res.positionals, 0..) |c, i| {
+                commands[i] = c;
+            }
         }
 
-        return Args{ .gpa = gpa, .help = help, .verbose = verbose, .file = file, .commands = commands, .n_commands = n_commands };
+        return Args{
+            .allocator = allocator,
+            .help = help,
+            .verbose = verbose,
+            .config_file = config_file,
+            .commands = commands,
+        };
     }
 
     pub fn deinit(self: Args) void {
-        var allocator = self.gpa.allocator();
-        allocator.free(self.file);
-        allocator.free(self.commands);
-        self.gpa.deinit();
+        self.allocator.free(self.config_file);
+        self.allocator.free(self.commands);
     }
 };

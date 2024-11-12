@@ -9,15 +9,25 @@ pub fn main() anyerror!void {
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
 
-    const args = try Args.init();
+    const args = try Args.init(allocator);
     defer args.deinit();
+    if (args.help) {
+        return;
+    }
+
+    if (args.verbose) {
+        const writer = std.io.getStdOut().writer();
+        try writer.print("Using syke config file: {s}\n", .{args.config_file});
+        try writer.print("Running commands: {any}\n", .{args.commands});
+    }
 
     var lua = try Lua.init(allocator);
     defer lua.deinit();
 
-    // TODO: check if the file even exists before dumping it into lua.doFile
-    // TODO: better error handling
-    try lua.doFile(args.file);
+    lua.doFile(args.config_file) catch |err| {
+        try std.io.getStdErr().writer().print("ERROR: {s}\n", .{try lua.toString(-1)});
+        return err;
+    };
 
     std.debug.print("isTable = {}\n", .{lua.isTable(-1)});
     _ = lua.getField(-1, "foo");
