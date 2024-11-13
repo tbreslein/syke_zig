@@ -9,7 +9,6 @@ pub const Args = struct {
     verbose: bool,
     commands: []const Command,
     config_file: [:0]const u8,
-    allocator: Allocator,
 
     pub fn init(allocator: Allocator) !Args {
         const params = comptime clap.parseParamsComptime(
@@ -66,16 +65,10 @@ pub const Args = struct {
         }
 
         return Args{
-            .allocator = allocator,
             .help = help,
             .verbose = verbose,
             .config_file = config_file,
             .commands = commands,
         };
-    }
-
-    pub fn deinit(self: Args) void {
-        self.allocator.free(self.config_file);
-        self.allocator.free(self.commands);
     }
 };

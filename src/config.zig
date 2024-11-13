@@ -4,17 +4,12 @@ const Allocator = std.mem.Allocator;
 
 pub const Config = struct {
     symlinks: []Symlink = undefined,
-    allocator: Allocator = undefined,
 
     pub const Symlink = struct {
         source: []const u8 = "",
         target: []const u8 = "",
         force: bool = false,
     };
-
-    pub fn deinit(self: Config) void {
-        self.allocator.free(self.symlinks);
-    }
 };
 
 pub fn parseFromLua(comptime t: type, allocator: Allocator, lua: *Lua) !t {
@@ -27,7 +22,6 @@ pub fn parseFromLua(comptime t: type, allocator: Allocator, lua: *Lua) !t {
         _ = lua.getField(-1, field.name);
         defer lua.pop(1);
         switch (field.type) {
-            Allocator => @field(x, field.name) = allocator,
             []const u8 => @field(x, field.name) = try lua.toString(-1),
             bool => @field(x, field.name) = lua.toBoolean(-1),
 
