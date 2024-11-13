@@ -1,9 +1,8 @@
 const std = @import("std");
 const Args = @import("args.zig").Args;
 const Config = @import("config.zig").Config;
-const ziglua = @import("ziglua");
-
-const Lua = ziglua.Lua;
+const run_commands = @import("commands.zig").run_commands;
+const Lua = @import("ziglua").Lua;
 
 pub fn main() anyerror!void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -37,13 +36,12 @@ pub fn main() anyerror!void {
 
     const config = try Config.fromLua(allocator, lua);
     defer config.deinit();
-    for (config.symlinks) |s| {
-        s.execute();
-    }
+
+    try run_commands(args, config);
 }
 
 pub fn setDefaults(lua: *Lua) !void {
     lua.openBase();
-    // it's way easier to do these checks and to set defaults in lua
+    // it's way easier to do checks and to set defaults on the config in lua
     try lua.doString(@embedFile("./postprocess_config.lua"));
 }

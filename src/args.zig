@@ -2,13 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const clap = @import("clap");
 
-pub const Command = enum {
-    repos,
-    pkgs,
-    config,
-    sync,
-    ln,
-};
+const Command = @import("commands.zig").Command;
 
 pub const Args = struct {
     help: bool,
