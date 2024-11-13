@@ -1,6 +1,6 @@
 const std = @import("std");
 const Args = @import("args.zig").Args;
-const Config = @import("config.zig").Config;
+const config = @import("config.zig");
 const run_commands = @import("commands.zig").run_commands;
 const Lua = @import("ziglua").Lua;
 
@@ -34,10 +34,10 @@ pub fn main() anyerror!void {
         return err;
     };
 
-    const config = try Config.fromLua(allocator, lua);
-    defer config.deinit();
+    const conf = try config.parseFromLua(config.Config, allocator, lua);
+    defer conf.deinit();
 
-    try run_commands(args, config);
+    try run_commands(args, conf);
 }
 
 pub fn setDefaults(lua: *Lua) !void {

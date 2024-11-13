@@ -1,5 +1,4 @@
 const std = @import("std");
-// const Symlink = @import("ln.zig").Symlink;
 const Lua = @import("ziglua").Lua;
 const Allocator = std.mem.Allocator;
 
@@ -12,10 +11,6 @@ pub const Config = struct {
         target: []const u8 = "",
         force: bool = false,
     };
-
-    pub fn fromLua(allocator: Allocator, lua: *Lua) !Config {
-        return parseFromLua(Config, allocator, lua);
-    }
 
     pub fn deinit(self: Config) void {
         self.allocator.free(self.symlinks);
