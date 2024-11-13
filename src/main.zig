@@ -29,10 +29,21 @@ pub fn main() anyerror!void {
         try std.io.getStdErr().writer().print("ERROR: {s}\n", .{try lua.toString(-1)});
         return err;
     };
+    lua.setGlobal("config");
+    setDefaults(lua) catch |err| {
+        try std.io.getStdErr().writer().print("ERROR: {s}\n", .{try lua.toString(-1)});
+        return err;
+    };
 
     const config = try Config.fromLua(allocator, lua);
     defer config.deinit();
     for (config.symlinks) |s| {
         s.execute();
     }
+}
+
+pub fn setDefaults(lua: *Lua) !void {
+    lua.openBase();
+    // it's way easier to do these checks and to set defaults in lua
+    try lua.doString(@embedFile("./postprocess_config.lua"));
 }
