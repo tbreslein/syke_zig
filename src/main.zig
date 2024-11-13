@@ -1,5 +1,6 @@
 const std = @import("std");
 const Args = @import("args.zig").Args;
+const Config = @import("config.zig").Config;
 const ziglua = @import("ziglua");
 
 const Lua = ziglua.Lua;
@@ -29,17 +30,9 @@ pub fn main() anyerror!void {
         return err;
     };
 
-    std.debug.print("isTable = {}\n", .{lua.isTable(-1)});
-    _ = lua.getField(-1, "foo");
-    std.debug.print("foo isTable = {}\n", .{lua.isTable(-1)});
-    _ = lua.getField(-1, "bar");
-    std.debug.print("bar isInteger = {}\n", .{lua.isInteger(-1)});
-    const bar = lua.toInteger(-1);
-    std.debug.print("bar = {any}\n", .{bar});
-    lua.pop(2);
-
-    _ = lua.getField(-1, "symlinks");
-    std.debug.print("symlinks isTable = {}\n", .{lua.isTable(-1)});
-    _ = lua.len(-1);
-    std.debug.print("symlinks.len = {any}\n", .{lua.toInteger(-1)});
+    const config = try Config.fromLua(allocator, lua);
+    defer config.deinit();
+    for (config.symlinks) |s| {
+        s.execute();
+    }
 }
