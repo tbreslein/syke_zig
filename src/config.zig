@@ -1,5 +1,6 @@
 const std = @import("std");
 const Lua = @import("ziglua").Lua;
+const Args = @import("args.zig").Args;
 const Allocator = std.mem.Allocator;
 
 pub const Config = struct {
@@ -10,7 +11,28 @@ pub const Config = struct {
         target: []const u8 = "",
         force: bool = false,
     };
+
+    pub fn init(args: Args, allocator: Allocator) !Config {
+        var lua = try Lua.init(allocator);
+
+        lua.doFile(args.config_file) catch |err| {
+            try std.io.getStdErr().writer().print("ERROR: {s}\n", .{try lua.toString(-1)});
+            return err;
+        };
+        lua.setGlobal("config");
+        setDefaults(lua) catch |err| {
+            try std.io.getStdErr().writer().print("ERROR: {s}\n", .{try lua.toString(-1)});
+            return err;
+        };
+        return try parseFromLua(Config, allocator, lua);
+    }
 };
+
+pub fn setDefaults(lua: *Lua) !void {
+    lua.openBase();
+    // it's way easier to do checks and to set defaults on the config in lua
+    try lua.doString(@embedFile("./postprocess_config.lua"));
+}
 
 pub fn parseFromLua(comptime t: type, allocator: Allocator, lua: *Lua) !t {
     // IDEA: using @embed, I can probably define the structure of Config in a
