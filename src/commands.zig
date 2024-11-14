@@ -26,6 +26,9 @@ pub fn run_commands(args: Args, config: Config, allocator: Allocator) !void {
 
 fn ln(symlinks: []Config.Symlink, allocator: Allocator) !void {
     for (symlinks) |sl| {
+        // TODO: pretty print
+        // TODO: check error code
+        // TODO: mkdir parent dir
         std.debug.print(
             "source: {s}\ntarget: {s}\nforce: {}\n",
             .{ sl.source, sl.target, sl.force },
