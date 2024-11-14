@@ -1,13 +1,15 @@
+local user = "tommy"
+local home = "/Users/" .. user
+
 return {
   symlinks = {
     {
-      source = "~/.dotfiles/config/alacritty/alacritty.toml",
-      target = "~/.config/alacritty/alacritty.toml",
-      force = true,
+      source = home .. "/.dotfiles/config/alacritty/alacritty.toml",
+      target = home .. "/.config/alacritty/alacritty.toml",
     },
     {
-      source = "~/.dotfiles/config/direnv.toml",
-      target = "~/.config/direnv/direnv.toml",
+      source = home .. "/.dotfiles/config/direnv.toml",
+      target = home .. "/.config/direnv/direnv.toml",
     },
   },
 }

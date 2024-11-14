@@ -7,9 +7,9 @@ if config.symlinks ~= nil then
       if v.target == nil then
         error("missing required field: config.symlinks.target")
       end
-      -- if v.force == nil then
-      --   v.force = false
-      -- end
+      if v.force == nil then
+        v.force = true
+      end
     end
   end
 end

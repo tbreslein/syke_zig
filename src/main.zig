@@ -23,5 +23,6 @@ pub fn main() anyerror!void {
 
     const conf = try Config.init(args, allocator);
 
-    try run_commands(args, conf);
+    try run_commands(args, conf, allocator);
+    // try run_commands(args, conf);
 }

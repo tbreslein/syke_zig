@@ -15,6 +15,9 @@ pub const Config = struct {
     pub fn init(args: Args, allocator: Allocator) !Config {
         var lua = try Lua.init(allocator);
 
+        // we are running lua as basically a one-shot script, so we don't need the gc
+        lua.gcStop();
+
         lua.doFile(args.config_file) catch |err| {
             try std.io.getStdErr().writer().print("ERROR: {s}\n", .{try lua.toString(-1)});
             return err;
