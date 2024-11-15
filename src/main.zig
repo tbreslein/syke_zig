@@ -1,6 +1,7 @@
 const std = @import("std");
 const Args = @import("args.zig").Args;
 const Config = @import("config.zig").Config;
+const Logger = @import("logger.zig").Logger;
 const run_commands = @import("commands.zig").run_commands;
 
 pub fn main() anyerror!void {
@@ -10,19 +11,23 @@ pub fn main() anyerror!void {
     const allocator = arena.allocator();
     defer _ = arena.deinit();
 
-    const args = try Args.init(allocator);
+    const home = try std.process.getEnvVarOwned(allocator, "HOME");
+    const args = try Args.init(allocator, home);
     if (args.help) {
         return;
     }
 
-    if (args.verbose) {
-        const writer = std.io.getStdOut().writer();
-        try writer.print("Using syke config file: {s}\n", .{args.config_file});
-        try writer.print("Running commands: {any}\n", .{args.commands});
+    var logger = Logger.init(args, allocator);
+    if (logger.verbose) {
+        try logger.newContext(@src().fn_name);
+        try logger.log(.Info, "Using syke config file: {s}", .{args.config_file});
+        try logger.log(.Info, "Running commands: {any}", .{args.commands});
     }
 
-    const conf = try Config.init(args, allocator);
+    const conf = try Config.init(args, &logger, allocator);
 
-    try run_commands(args, conf, allocator);
-    // try run_commands(args, conf);
+    try run_commands(args, conf, allocator, &logger);
+
+    if (logger.verbose)
+        try logger.contextFinish();
 }
