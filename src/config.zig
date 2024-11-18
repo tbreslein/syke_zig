@@ -11,14 +11,20 @@ pub const Config = struct {
         source: []const u8 = "",
         target: []const u8 = "",
         force: bool = false,
+        absent: bool = false,
     };
 
     pub fn init(args: Args, logger: *Logger, allocator: Allocator) !Config {
-        if (logger.verbose)
-            try logger.newContext("parse lua config");
+        if (logger.verbose) try logger.newContext("parse lua config");
 
         var lua = try Lua.init(allocator);
         lua.openLibs();
+
+        try lua.doString(try std.fmt.allocPrintZ(
+            allocator,
+            "package.path = '{s}/?.lua;' .. package.path",
+            .{args.lua_path},
+        ));
 
         // we are running lua as basically a one-shot script, so we don't need the gc
         lua.gcStop();
@@ -34,9 +40,7 @@ pub const Config = struct {
         };
         const config = try parseFromLua(Config, allocator, logger, lua);
 
-        if (logger.verbose)
-            try logger.contextFinish();
-
+        if (logger.verbose) try logger.contextFinish();
         return config;
     }
 };

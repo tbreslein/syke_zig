@@ -10,15 +10,16 @@ pub const Args = struct {
     color: bool,
     commands: []const Command,
     config_file: [:0]const u8,
+    lua_path: []const u8,
 
     const ColorMode = enum { Auto, On, Off };
 
     pub fn init(allocator: Allocator, home: []const u8) !Args {
         const params = comptime clap.parseParamsComptime(
-            \\-h, --help                 Display this help and exit.
-            \\-v, --verbose              Print verbose output, useful for debugging.
+            \\-h, --help                 Display this help and exit
+            \\-v, --verbose              Print verbose output, useful for debugging
             \\--color       <COLOR_MODE> whether to enable colors [options: auto(default), on, off]
-            \\-c, --config  <PATH>       Path to the config file; defaults to $XDG_CONFIG_HOME/syke/syke.lua.
+            \\-c, --config  <PATH>       Path to the config file; defaults to $XDG_CONFIG_HOME/syke/syke.lua
             \\<COMMAND>...
             \\
         );
@@ -40,9 +41,8 @@ pub const Args = struct {
         defer res.deinit();
 
         const help = res.args.help != 0;
-        if (help) {
+        if (help)
             try clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{});
-        }
 
         return Args{
             .color = blk: {
@@ -58,12 +58,14 @@ pub const Args = struct {
             .help = help,
             .verbose = res.args.verbose != 0,
             .config_file = blk: {
-                if (res.args.config) |c| {
-                    // NOTE: this is needed to "cast" the file name from a []const u8 to
-                    // [:0]const u8 (which lua.doFile expects)
+                if (res.args.config) |c|
                     break :blk try std.fmt.allocPrintZ(allocator, "{s}", .{c});
-                }
                 break :blk try std.fmt.allocPrintZ(allocator, "{s}/.config/syke/syke.lua", .{home});
+            },
+            .lua_path = blk: {
+                if (res.args.config) |c|
+                    break :blk try std.fmt.allocPrint(allocator, "{s}", .{std.fs.path.dirname(c).?});
+                break :blk try std.fmt.allocPrint(allocator, "{s}/.config/syke/lua", .{home});
             },
             .commands = blk: {
                 var n_commands = res.positionals.len;

@@ -31,19 +31,23 @@ fn ln(symlinks: []Config.Symlink, allocator: Allocator, logger: *Logger) !void {
     defer logger.contextFinish() catch {};
 
     for (symlinks) |sl| {
-        try logger.log(
-            .Info,
-            "Linking source: {s} -> target: {s} (force = {})",
-            .{ sl.source, sl.target, sl.force },
-        );
-        try std.fs.cwd().makePath(std.fs.path.dirname(sl.target).?);
-
-        const res = try std.process.Child.run(.{ .allocator = allocator, .argv = &[_][]const u8{
-            "ln",
-            if (sl.force) "-sf" else "-s",
-            sl.source,
-            sl.target,
-        } });
+        var res: std.process.Child.RunResult = undefined;
+        if (sl.absent) {
+            res = try std.process.Child.run(.{ .allocator = allocator, .argv = &[_][]const u8{
+                "unlink",
+                sl.target,
+            } });
+        } else {
+            try std.fs.cwd().makePath(std.fs.path.dirname(sl.target).?);
+            res = try std.process.Child.run(.{ .allocator = allocator, .argv = &[_][]const u8{
+                "ln",
+                if (sl.force) "-sfv" else "-sv",
+                sl.source,
+                sl.target,
+            } });
+            if (logger.verbose)
+                try logger.log(.Info, "{s}", .{res.stdout[0 .. res.stdout.len - 1]});
+        }
         if (res.term.Exited != 0) {
             try logger.log(
                 .Error,

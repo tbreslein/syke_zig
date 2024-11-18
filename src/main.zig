@@ -4,6 +4,12 @@ const Config = @import("config.zig").Config;
 const Logger = @import("logger.zig").Logger;
 const run_commands = @import("commands.zig").run_commands;
 
+// TODO:
+//   - add tests
+//   - add github pipeline
+//   - in logger, make ctx stack a stack of (bool, ctx),
+//     where the bool tracks whether this ctx encountered an error
+
 pub fn main() anyerror!void {
     // just use an arena, since this is a one-shot program without any internal
     // loops and pretty predictable allocations.
@@ -13,9 +19,7 @@ pub fn main() anyerror!void {
 
     const home = try std.process.getEnvVarOwned(allocator, "HOME");
     const args = try Args.init(allocator, home);
-    if (args.help) {
-        return;
-    }
+    if (args.help) return;
 
     var logger = Logger.init(args, allocator);
     if (logger.verbose) {
@@ -28,6 +32,5 @@ pub fn main() anyerror!void {
 
     try run_commands(args, conf, allocator, &logger);
 
-    if (logger.verbose)
-        try logger.contextFinish();
+    if (logger.verbose) try logger.contextFinish();
 }
