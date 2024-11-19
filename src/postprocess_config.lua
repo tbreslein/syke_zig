@@ -14,6 +14,8 @@ if config.symlinks ~= nil then
         v.force = true
       end
     end
+  else
+    error("syntax error: config.symlinks needs to be a table")
   end
 end
 

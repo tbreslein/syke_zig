@@ -31,30 +31,50 @@ fn ln(symlinks: []Config.Symlink, allocator: Allocator, logger: *Logger) !void {
     defer logger.contextFinish() catch {};
 
     for (symlinks) |sl| {
-        var res: std.process.Child.RunResult = undefined;
         if (sl.absent) {
-            res = try std.process.Child.run(.{ .allocator = allocator, .argv = &[_][]const u8{
-                "unlink",
-                sl.target,
-            } });
+            if (logger.verbose)
+                try logger.log(.Info, "Removing symlink: {s}", .{sl.target});
+
+            const cwd = std.fs.cwd();
+            if (cwd.statFile(sl.target)) |_| {
+                var buffer: [256]u8 = undefined;
+                _ = cwd.readLink(sl.target, &buffer) catch |err| switch (err) {
+                    error.NotLink => {
+                        try logger.log(
+                            .Error,
+                            "File is not a symlink: {s}; Ignoring.",
+                            .{sl.target},
+                        );
+                        logger.saw_error = true;
+                        continue;
+                    },
+                    else => {
+                        try logger.log(
+                            .Error,
+                            "Unexpected error while trying to remove symlink: {s}; error = {}",
+                            .{ sl.target, err },
+                        );
+                        return err;
+                    },
+                };
+                try cwd.deleteFile(sl.target);
+            } else |err| switch (err) {
+                error.FileNotFound => {
+                    if (logger.verbose)
+                        try logger.log(
+                            .Info,
+                            "File already absent: {s}",
+                            .{sl.target},
+                        );
+                    continue;
+                },
+                else => return err,
+            }
         } else {
             try std.fs.cwd().makePath(std.fs.path.dirname(sl.target).?);
-            res = try std.process.Child.run(.{ .allocator = allocator, .argv = &[_][]const u8{
-                "ln",
-                if (sl.force) "-sfv" else "-sv",
-                sl.source,
-                sl.target,
-            } });
             if (logger.verbose)
-                try logger.log(.Info, "{s}", .{res.stdout[0 .. res.stdout.len - 1]});
-        }
-        if (res.term.Exited != 0) {
-            try logger.log(
-                .Error,
-                "exitcode = {}; stderr: {s}",
-                .{ res.term.Exited, res.stderr },
-            );
-            logger.saw_error = true;
+                try logger.log(.Info, "{s} -> {s}", .{ sl.source, sl.target });
+            try std.fs.atomicSymLink(allocator, sl.source, sl.target);
         }
     }
 }
