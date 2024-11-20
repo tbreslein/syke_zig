@@ -19,8 +19,12 @@ pub const Logger = struct {
     color: bool,
     stdout: std.fs.File.Writer,
     stderr: std.fs.File.Writer,
-    current_ctx_stack: std.ArrayList([]const u8),
-    saw_error: bool,
+    current_ctx_stack: std.ArrayList(Ctx),
+
+    const Ctx = struct {
+        saw_error: bool = false,
+        name: []const u8,
+    };
 
     pub fn init(args: Args, allocator: Allocator) @This() {
         return .{
@@ -28,15 +32,13 @@ pub const Logger = struct {
             .verbose = args.verbose,
             .stdout = std.io.getStdOut().writer(),
             .stderr = std.io.getStdErr().writer(),
-            .current_ctx_stack = std.ArrayList([]const u8).init(allocator),
-            .saw_error = false,
+            .current_ctx_stack = std.ArrayList(Ctx).init(allocator),
         };
     }
 
     pub fn newContext(self: *@This(), comptime ctx: []const u8) !void {
-        try self.current_ctx_stack.append(ctx);
+        try self.current_ctx_stack.append(.{ .name = ctx });
         try self.log(.Info, "Start", .{});
-        self.saw_error = false;
     }
 
     pub fn info(self: @This(), comptime fstring: []const u8, fargs: anytype) !void {
@@ -48,7 +50,7 @@ pub const Logger = struct {
     }
 
     pub fn err(self: *@This(), comptime fstring: []const u8, fargs: anytype) !void {
-        self.saw_error = true;
+        for (self.current_ctx_stack.items) |*ctx| ctx.saw_error = true;
         try self.log(.Error, fstring, fargs);
     }
 
@@ -72,13 +74,13 @@ pub const Logger = struct {
         };
         const context = switch (self.current_ctx_stack.items.len) {
             0 => "",
-            else => self.current_ctx_stack.items[self.current_ctx_stack.items.len - 1],
+            else => self.current_ctx_stack.items[self.current_ctx_stack.items.len - 1].name,
         };
         try writer.print("{s}[ syke:{s} ] {s} |{s} " ++ fstring ++ "\n", .{ color, context, @tagName(level), reset } ++ fargs);
     }
 
     pub fn contextFinish(self: *@This()) !void {
-        if (self.saw_error) {
+        if (self.current_ctx_stack.items[self.current_ctx_stack.items.len - 1].saw_error) {
             try self.warn("Saw at least one error. Check previous logs", .{});
         } else {
             try self.success("Done", .{});
