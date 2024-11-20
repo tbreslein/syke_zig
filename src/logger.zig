@@ -22,7 +22,7 @@ pub const Logger = struct {
     current_ctx_stack: std.ArrayList([]const u8),
     saw_error: bool,
 
-    pub fn init(args: Args, allocator: Allocator) Logger {
+    pub fn init(args: Args, allocator: Allocator) @This() {
         return .{
             .color = args.color,
             .verbose = args.verbose,
@@ -33,13 +33,30 @@ pub const Logger = struct {
         };
     }
 
-    pub fn newContext(self: *Logger, comptime ctx: []const u8) !void {
+    pub fn newContext(self: *@This(), comptime ctx: []const u8) !void {
         try self.current_ctx_stack.append(ctx);
         try self.log(.Info, "Start", .{});
         self.saw_error = false;
     }
 
-    pub fn log(self: Logger, comptime level: Level, comptime fstring: []const u8, fargs: anytype) !void {
+    pub fn info(self: @This(), comptime fstring: []const u8, fargs: anytype) !void {
+        try self.log(.Info, fstring, fargs);
+    }
+
+    pub fn warn(self: @This(), comptime fstring: []const u8, fargs: anytype) !void {
+        try self.log(.Warn, fstring, fargs);
+    }
+
+    pub fn err(self: *@This(), comptime fstring: []const u8, fargs: anytype) !void {
+        self.saw_error = true;
+        try self.log(.Error, fstring, fargs);
+    }
+
+    fn success(self: @This(), comptime fstring: []const u8, fargs: anytype) !void {
+        try self.log(.Success, fstring, fargs);
+    }
+
+    fn log(self: @This(), comptime level: Level, comptime fstring: []const u8, fargs: anytype) !void {
         const writer = switch (level) {
             .Info, .Warn, .Success => self.stdout,
             .Error => self.stderr,
@@ -60,11 +77,11 @@ pub const Logger = struct {
         try writer.print("{s}[ syke:{s} ] {s} |{s} " ++ fstring ++ "\n", .{ color, context, @tagName(level), reset } ++ fargs);
     }
 
-    pub fn contextFinish(self: *Logger) !void {
+    pub fn contextFinish(self: *@This()) !void {
         if (self.saw_error) {
-            try self.log(.Warn, "Saw at least one error. Check previous logs", .{});
+            try self.warn("Saw at least one error. Check previous logs", .{});
         } else {
-            try self.log(.Success, "Done", .{});
+            try self.success("Done", .{});
         }
         _ = self.current_ctx_stack.pop();
     }

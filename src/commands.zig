@@ -33,24 +33,21 @@ fn ln(symlinks: []Config.Symlink, dry_run: bool, allocator: Allocator, logger: *
     for (symlinks) |sl| {
         if (sl.absent) {
             if (logger.verbose)
-                try logger.log(.Info, "Removing symlink: {s}", .{sl.target});
+                try logger.info("Removing symlink: {s}", .{sl.target});
 
             const cwd = std.fs.cwd();
             if (cwd.statFile(sl.target)) |_| {
                 var buffer: [256]u8 = undefined;
                 _ = cwd.readLink(sl.target, &buffer) catch |err| switch (err) {
                     error.NotLink => {
-                        try logger.log(
-                            .Error,
+                        try logger.err(
                             "File is not a symlink: {s}; Ignoring.",
                             .{sl.target},
                         );
-                        logger.saw_error = true;
                         continue;
                     },
                     else => {
-                        try logger.log(
-                            .Error,
+                        try logger.err(
                             "Unexpected error while trying to remove symlink: {s}; error = {}",
                             .{ sl.target, err },
                         );
@@ -62,8 +59,7 @@ fn ln(symlinks: []Config.Symlink, dry_run: bool, allocator: Allocator, logger: *
             } else |err| switch (err) {
                 error.FileNotFound => {
                     if (logger.verbose)
-                        try logger.log(
-                            .Info,
+                        try logger.info(
                             "File already absent: {s}",
                             .{sl.target},
                         );
@@ -73,7 +69,7 @@ fn ln(symlinks: []Config.Symlink, dry_run: bool, allocator: Allocator, logger: *
             }
         } else {
             if (logger.verbose)
-                try logger.log(.Info, "{s} -> {s}", .{ sl.source, sl.target });
+                try logger.info("{s} -> {s}", .{ sl.source, sl.target });
             if (!dry_run) {
                 try std.fs.cwd().makePath(std.fs.path.dirname(sl.target).?);
                 try std.fs.atomicSymLink(allocator, sl.source, sl.target);

@@ -14,7 +14,7 @@ run:
 	zig build run -- $(ARGS)
 
 test:
-	zig build test
+	zig build test --summary all
 
 clean:
 	rm -fr ./.zig-cache/ ./zig-out/ ~/.local/bin/syke

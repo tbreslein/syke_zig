@@ -4,17 +4,17 @@ const clap = @import("clap");
 const Command = @import("commands.zig").Command;
 
 pub const Args = struct {
-    help: bool,
-    verbose: bool,
-    color: bool,
-    dry_run: bool,
-    commands: []const Command,
-    config_file: [:0]const u8,
-    lua_path: []const u8,
+    help: bool = false,
+    verbose: bool = false,
+    color: bool = true,
+    dry_run: bool = false,
+    commands: []const Command = &[_]Command{},
+    config_file: [:0]const u8 = @ptrCast(&[_]u8{}),
+    lua_path: []const u8 = &[_]u8{},
 
     const ColorMode = enum { Auto, On, Off };
 
-    pub fn init(allocator: Allocator, home: []const u8) !Args {
+    pub fn init(allocator: Allocator, home: []const u8) !@This() {
         const params = comptime clap.parseParamsComptime(
             \\-h, --help                 Display this help and exit
             \\-v, --verbose              Print verbose output, useful for debugging
@@ -45,7 +45,7 @@ pub const Args = struct {
         if (help)
             try clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{});
 
-        return Args{
+        return @This(){
             .color = blk: {
                 if (res.args.color) |c| {
                     break :blk switch (c) {

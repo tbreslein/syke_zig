@@ -21,17 +21,34 @@
       perSystem = {
         system,
         pkgs,
+        self',
         ...
-      }: {
-        _module.args.pkgs = import inputs.nixpkgs {
-          inherit system;
-        };
-        devShells.default = pkgs.mkShell {
+      }: let
           buildInputs = [
             zig-overlay.packages."${system}"."0.13.0"
             zls-flake.packages."${system}".default
             pkgs.gnumake
-          ];
+        ];
+        in{
+        _module.args.pkgs = import inputs.nixpkgs {
+          inherit system;
+        };
+        devShells.default = pkgs.mkShell {
+            inherit buildInputs;
+        };
+        packages.default = pkgs.stdenv.mkDerivation {
+          name = "syke";
+          src = self;
+          # sourceRoot = ".";
+          inherit buildInputs;
+          buildPhase = ''
+            mkdir -p $TMPDIR/bin
+            zig build --release=fast -p $TMPDIR;
+          '';
+          installPhase = ''
+            mkdir -p $out/bin
+            cp $TMPDIR/bin/syke $out/bin/
+          '';
         };
       };
     };
