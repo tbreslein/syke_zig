@@ -1,13 +1,13 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const clap = @import("clap");
-
 const Command = @import("commands.zig").Command;
 
 pub const Args = struct {
     help: bool,
     verbose: bool,
     color: bool,
+    dry_run: bool,
     commands: []const Command,
     config_file: [:0]const u8,
     lua_path: []const u8,
@@ -18,6 +18,7 @@ pub const Args = struct {
         const params = comptime clap.parseParamsComptime(
             \\-h, --help                 Display this help and exit
             \\-v, --verbose              Print verbose output, useful for debugging
+            \\-d, --dryrun               Only print what syke would be doing, but do not perform any actions. This also enables -v
             \\--color       <COLOR_MODE> whether to enable colors [options: auto(default), on, off]
             \\-c, --config  <PATH>       Path to the config file; defaults to $XDG_CONFIG_HOME/syke/syke.lua
             \\<COMMAND>...
@@ -56,7 +57,8 @@ pub const Args = struct {
                 break :blk true;
             },
             .help = help,
-            .verbose = res.args.verbose != 0,
+            .dry_run = res.args.dryrun != 0,
+            .verbose = res.args.verbose != 0 or res.args.dryrun != 0,
             .config_file = blk: {
                 if (res.args.config) |c|
                     break :blk try std.fmt.allocPrintZ(allocator, "{s}", .{c});

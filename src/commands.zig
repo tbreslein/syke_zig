@@ -15,18 +15,18 @@ pub const Command = enum {
 pub fn run_commands(args: Args, config: Config, allocator: Allocator, logger: *Logger) !void {
     for (args.commands) |c| {
         switch (c) {
-            .ln => try ln(config.symlinks, allocator, logger),
+            .ln => try ln(config.symlinks, args.dry_run, allocator, logger),
             .sync => {
                 try logger.newContext("sync");
                 defer logger.contextFinish() catch {};
-                try ln(config.symlinks, allocator, logger);
+                try ln(config.symlinks, args.dry_run, allocator, logger);
             },
             else => unreachable,
         }
     }
 }
 
-fn ln(symlinks: []Config.Symlink, allocator: Allocator, logger: *Logger) !void {
+fn ln(symlinks: []Config.Symlink, dry_run: bool, allocator: Allocator, logger: *Logger) !void {
     try logger.newContext(@src().fn_name);
     defer logger.contextFinish() catch {};
 
@@ -57,7 +57,8 @@ fn ln(symlinks: []Config.Symlink, allocator: Allocator, logger: *Logger) !void {
                         return err;
                     },
                 };
-                try cwd.deleteFile(sl.target);
+                if (!dry_run)
+                    try cwd.deleteFile(sl.target);
             } else |err| switch (err) {
                 error.FileNotFound => {
                     if (logger.verbose)
@@ -71,10 +72,12 @@ fn ln(symlinks: []Config.Symlink, allocator: Allocator, logger: *Logger) !void {
                 else => return err,
             }
         } else {
-            try std.fs.cwd().makePath(std.fs.path.dirname(sl.target).?);
             if (logger.verbose)
                 try logger.log(.Info, "{s} -> {s}", .{ sl.source, sl.target });
-            try std.fs.atomicSymLink(allocator, sl.source, sl.target);
+            if (!dry_run) {
+                try std.fs.cwd().makePath(std.fs.path.dirname(sl.target).?);
+                try std.fs.atomicSymLink(allocator, sl.source, sl.target);
+            }
         }
     }
 }

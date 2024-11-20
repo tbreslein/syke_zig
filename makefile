@@ -1,13 +1,14 @@
-SYKE_BIN := zig-out/bin/syke
+RELEASE_FLAGS := "--release=fast -p ~/.local"
 
-.PHONY: all build run test clean
+.PHONY: all build install run test clean
 
-all: ${SYKE_BIN}
+all: build
 
-${SYKE_BIN}: build
+install:
+	ARGS=${RELEASE_FLAGS} ${MAKE} build
 
 build:
-	zig build
+	zig build $(ARGS)
 
 run:
 	zig build run -- $(ARGS)
@@ -16,4 +17,4 @@ test:
 	zig build test
 
 clean:
-	rm -fr ./.zig-cache/ ./zig-out/
+	rm -fr ./.zig-cache/ ./zig-out/ ~/.local/bin/syke
