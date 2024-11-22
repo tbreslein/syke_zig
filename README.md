@@ -153,13 +153,13 @@ and their configuration as declarative as possible. For that purpose, these are
 some of the planned features:
 
 - [x] declare symlinks you want to have set
-- [ ] declare git repositories you want to have cloned and synced
-- [ ] declare regexes, lines, or blocks of text in textfiles
+- [x] declare git repositories you want to have cloned and synced
+- [ ] run arbitrary shell commands at various points during a `syke` run (at the beginning, before or after certain subcommands, or at the very end)
 - [ ] declare packages you want to have installed via various package managers (including removing packages you remove from your config)
   - [ ] homebrew
   - [ ] pacman
   - [ ] paru (or maybe I'll implement my own small aur helper system)
-- [ ] run arbitrary shell commands at various points during a `syke` run (at the beginning, before or after certain subcommands, or at the very end)
+- [ ] declare regexes, lines, or blocks of text in textfiles
 
 ## License
 

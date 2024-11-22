@@ -6,6 +6,7 @@ const Allocator = std.mem.Allocator;
 
 pub const Config = struct {
     symlinks: []Symlink = &[_]Symlink{},
+    repos: []Repo = &[_]Repo{},
 
     pub const Symlink = struct {
         source: []const u8 = "",
@@ -19,6 +20,15 @@ pub const Config = struct {
                 try logger.err("Symlink.source cannot be empty, unless Symlink.absent == true.", .{});
                 return error.LuaError;
             }
+        }
+    };
+
+    pub const Repo = struct {
+        remote: []const u8,
+        path: []const u8,
+
+        fn validate(_: @This(), _: *Logger) !void {
+            return;
         }
     };
 
@@ -48,6 +58,9 @@ pub const Config = struct {
     }
 
     fn validate(_: @This(), _: *Logger) !void {
+        // TODO:
+        //   - no duplicate symlink targets
+        //   - no duplicate repo paths
         return;
     }
 };

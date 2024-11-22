@@ -76,7 +76,7 @@ pub const Logger = struct {
             0 => "",
             else => self.current_ctx_stack.items[self.current_ctx_stack.items.len - 1].name,
         };
-        try writer.print("{s}[ syke:{s} ] {s} |{s} " ++ fstring ++ "\n", .{ color, context, @tagName(level), reset } ++ fargs);
+        try writer.print("{s}[{s}|{s}]{s} " ++ fstring ++ "\n", .{ color, context, @tagName(level), reset } ++ fargs);
     }
 
     pub fn contextFinish(self: *@This()) !void {
