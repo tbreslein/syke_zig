@@ -162,7 +162,7 @@ pub fn parseFromLua(comptime t: type, allocator: Allocator, logger: *Logger, lua
 }
 
 fn test_runner(allocator: Allocator, lua_string: [:0]const u8) !Config {
-    var logger = Logger.init(.{}, allocator);
+    var logger = Logger.init(.{ .very_quiet = true }, allocator);
     var lua = try Lua.init(allocator);
     lua.openLibs();
     try lua.doString(lua_string);
@@ -189,16 +189,16 @@ test "parse symlinks successful" {
     defer _ = arena.deinit();
     const symlinks: []const Config.Symlink = &.{
         .{ .source = "foo", .target = "bar", .absent = false },
-        .{ .source = "foo", .target = "bar", .absent = true },
-        .{ .source = "", .target = "bar", .absent = true },
+        .{ .source = "foo", .target = "baz", .absent = true },
+        .{ .source = "", .target = "faz", .absent = true },
     };
     try std.testing.expectEqualDeep(
         Config{ .symlinks = @constCast(symlinks) },
         test_runner(allocator,
             \\ return { symlinks = {
             \\     { source = "foo", target = "bar", absent = false },
-            \\     { source = "foo", target = "bar", absent = true },
-            \\     { target = "bar", absent = true },
+            \\     { source = "foo", target = "baz", absent = true },
+            \\     { target = "faz", absent = true },
             \\ }}
             \\
         ),

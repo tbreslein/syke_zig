@@ -19,6 +19,8 @@ pub const Logger = struct {
     color: bool,
     stdout: std.fs.File.Writer,
     stderr: std.fs.File.Writer,
+    quiet: bool,
+    very_quiet: bool,
     current_ctx_stack: std.ArrayList(Ctx),
 
     const Ctx = struct {
@@ -33,6 +35,8 @@ pub const Logger = struct {
             .stdout = std.io.getStdOut().writer(),
             .stderr = std.io.getStdErr().writer(),
             .current_ctx_stack = std.ArrayList(Ctx).init(allocator),
+            .quiet = args.quiet,
+            .very_quiet = args.very_quiet,
         };
     }
 
@@ -59,6 +63,9 @@ pub const Logger = struct {
     }
 
     fn log(self: @This(), comptime level: Level, comptime fstring: []const u8, fargs: anytype) !void {
+        if (self.very_quiet) return;
+        if (self.quiet and level != .Error) return;
+
         const writer = switch (level) {
             .Info, .Warn, .Success => self.stdout,
             .Error => self.stderr,

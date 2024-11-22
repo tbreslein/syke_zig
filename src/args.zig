@@ -8,6 +8,8 @@ pub const Args = struct {
     verbose: bool = false,
     color: bool = true,
     dry_run: bool = false,
+    quiet: bool = false,
+    very_quiet: bool = false,
     commands: []const Command = &[_]Command{},
     config_file: [:0]const u8 = @ptrCast(&[_]u8{}),
     lua_path: []const u8 = &[_]u8{},
@@ -18,7 +20,9 @@ pub const Args = struct {
         const params = comptime clap.parseParamsComptime(
             \\-h, --help                 Display this help and exit
             \\-v, --verbose              Print verbose output, useful for debugging
-            \\-d, --dryrun               Only print what syke would be doing, but do not perform any actions. This also enables -v
+            \\-d, --dry-run              Only print what syke would be doing, but do not perform any actions. This also enables -v
+            \\-q, --quiet                Print nothing to stdout
+            \\-Q, --very-quiet           Print nothing to neither stdout nor stderr
             \\--color       <COLOR_MODE> whether to enable colors [options: auto(default), on, off]
             \\-c, --config  <PATH>       Path to the config file; defaults to $XDG_CONFIG_HOME/syke/syke.lua
             \\<COMMAND>...
@@ -57,8 +61,10 @@ pub const Args = struct {
                 break :blk true;
             },
             .help = help,
-            .dry_run = res.args.dryrun != 0,
-            .verbose = res.args.verbose != 0 or res.args.dryrun != 0,
+            .dry_run = res.args.@"dry-run" != 0,
+            .quiet = res.args.quiet != 0,
+            .very_quiet = res.args.@"very-quiet" != 0,
+            .verbose = res.args.verbose != 0 or res.args.@"dry-run" != 0,
             .config_file = blk: {
                 if (res.args.config) |c|
                     break :blk try std.fmt.allocPrintZ(allocator, "{s}", .{c});
