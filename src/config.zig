@@ -57,10 +57,33 @@ pub const Config = struct {
         return config;
     }
 
-    fn validate(_: @This(), _: *Logger) !void {
-        // TODO:
-        //   - no duplicate symlink targets
-        //   - no duplicate repo paths
+    fn validate(self: @This(), logger: *Logger) !void {
+        for (0..self.repos.len) |i| {
+            for (0..self.repos.len) |j| {
+                if (i == j)
+                    continue;
+                if (std.mem.eql(u8, self.repos[i].path, self.repos[j].path)) {
+                    try logger.err(
+                        "Found multiple repos pointing at the same path: {s}",
+                        .{self.repos[i].path},
+                    );
+                    return error.LuaError;
+                }
+            }
+        }
+        for (0..self.symlinks.len) |i| {
+            for (0..self.symlinks.len) |j| {
+                if (i == j)
+                    continue;
+                if (std.mem.eql(u8, self.symlinks[i].target, self.symlinks[j].target)) {
+                    try logger.err(
+                        "Found multiple symlinks pointing at the same target: {s}",
+                        .{self.symlinks[i].target},
+                    );
+                    return error.LuaError;
+                }
+            }
+        }
         return;
     }
 };
