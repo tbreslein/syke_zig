@@ -9,16 +9,23 @@ pub const Command = enum {
     sync,
     ln,
     repos,
+    shell,
     // pkgs,
-    // config,
-    // shell
+    // text,
+    // services,
 };
 
 pub fn run_commands(args: Args, config: Config, allocator: Allocator, logger: *Logger) !void {
+    // TODO
+    // for (config.shell) |cmd|
+    //     if (std.meta.eql(cmd.hook, .{ .when = .before, .what = .main }))
+    //         try shell(cmd, args.dry_run, allocator, logger);
+
     for (args.commands) |c| {
         switch (c) {
             .ln => try ln(config.symlinks, args.dry_run, allocator, logger),
             .repos => try repos(config.repos, args.dry_run, allocator, logger),
+            .shell => {},
             .sync => {
                 try logger.newContext("sync");
                 defer logger.contextFinish() catch {};
@@ -27,12 +34,44 @@ pub fn run_commands(args: Args, config: Config, allocator: Allocator, logger: *L
             },
         }
     }
+
+    // TODO
+    // for (config.shell) |cmd|
+    //     if (std.meta.eql(cmd.hook, .{ .when = .after, .what = .main }))
+    //         try shell(cmd, args.dry_run, allocator, logger);
+}
+
+const CommandError = error{
+    ChildProcessError,
+};
+
+fn generic_run(args: anytype, logger: *Logger) !Child.RunResult {
+    const res = Child.run(args) catch |err| {
+        const process_name = try std.mem.join(args.allocator, " ", args.argv);
+        try logger.err(
+            "Unable to spawn process '{s}'. error: {any}",
+            .{ process_name, err },
+        );
+        return err;
+    };
+    if (res.term.Exited > 0) {
+        const process_name = try std.mem.join(args.allocator, " ", args.argv);
+        try logger.err(
+            "Encountered error while running '{s}'. exit code: {}; stderr: {s}",
+            .{ process_name, res.term.Exited, res.stderr },
+        );
+        return error.ChildProcessError;
+    }
+    return res;
 }
 
 fn ln(symlinks: []Config.Symlink, dry_run: bool, allocator: Allocator, logger: *Logger) !void {
     try logger.newContext(@src().fn_name);
     defer logger.contextFinish() catch {};
-    if (symlinks.len == 0) return;
+    // TODO
+    // for (cmds) |cmd|
+    //     if (std.meta.eql(cmd.hook, .{ .when = .before, .what = .ln }))
+    //         try shell(cmd, dry_run, allocator, logger);
 
     for (symlinks) |sl| {
         if (sl.absent) {
@@ -80,40 +119,22 @@ fn ln(symlinks: []Config.Symlink, dry_run: bool, allocator: Allocator, logger: *
             }
         }
     }
-}
-
-const CommandError = error{
-    ChildProcessError,
-};
-
-fn generic_run(args: anytype, logger: *Logger) !Child.RunResult {
-    const res = Child.run(args) catch |err| {
-        const process_name = try std.mem.concat(args.allocator, u8, args.argv);
-        try logger.err(
-            "Unable to spawn process '{s}'. error: {any}",
-            .{ process_name, err },
-        );
-        return err;
-    };
-    if (res.term.Exited > 0) {
-        const process_name = try std.mem.concat(args.allocator, u8, args.argv);
-        try logger.err(
-            "Encountered error while running '{s}'. exit code: {}; stderr: {s}",
-            .{ process_name, res.term.Exited, res.stderr },
-        );
-        return error.ChildProcessError;
-    }
-    return res;
+    // TODO
+    // for (cmds) |cmd|
+    //     if (std.meta.eql(cmd.hook, .{ .when = .after, .what = .ln }))
+    //         try shell(cmd, dry_run, allocator, logger);
 }
 
 fn repos(repositories: []Config.Repo, _: bool, allocator: Allocator, logger: *Logger) !void {
     try logger.newContext(@src().fn_name);
     defer logger.contextFinish() catch {};
-    if (repositories.len == 0) return;
+
+    // TODO
+    // for (cmds) |cmd|
+    //     if (std.meta.eql(cmd.hook, .{ .when = .before, .what = .repos }))
+    //         try shell(cmd, dry_run, allocator, logger);
 
     // TODO: run this in separate threads
-    // TODO: extract all these processes into a separate function, because I
-    // handle all of them pretty much the same
     for (repositories) |repo| {
         const dir = std.fs.openDirAbsolute(repo.path, .{}) catch |err| switch (err) {
             error.FileNotFound => {
@@ -172,5 +193,22 @@ fn repos(repositories: []Config.Repo, _: bool, allocator: Allocator, logger: *Lo
             .cwd_dir = dir,
         }, logger) catch continue;
         try logger.info("git pull @{s} stdout: {s}", .{ repo.path, git_pull.stdout[0 .. git_pull.stdout.len - 2] });
+    }
+
+    // TODO
+    // for (cmds) |cmd|
+    //     if (std.meta.eql(cmd.hook, .{ .when = .after, .what = .repos }))
+    //         try shell(cmd, dry_run, allocator, logger);
+}
+
+fn shell(cmd: Config.Shell, dry_run: bool, allocator: Allocator, logger: *Logger) !void {
+    try logger.newContext(@src().fn_name);
+    defer logger.contextFinish() catch {};
+    if (!dry_run) {
+        const res = try generic_run(.{ .allocator = allocator, .argv = cmd.cmd }, logger);
+        if (res.stdout.len > 0) {
+            const process_name = try std.mem.join(allocator, " ", cmd.cmd);
+            try logger.info("Stdout from running '{s}':\n{s}", .{ process_name, res.stdout });
+        }
     }
 }
