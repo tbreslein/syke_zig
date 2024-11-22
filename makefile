@@ -1,4 +1,4 @@
-RELEASE_FLAGS := "--release=fast -p ~/.local"
+RELEASE_FLAGS := "--release=small -p ~/.local"
 
 .PHONY: all build install run test clean
 
@@ -8,7 +8,7 @@ install:
 	ARGS=${RELEASE_FLAGS} ${MAKE} build
 
 build:
-	zig build $(ARGS)
+	zig build install $(ARGS)
 
 run:
 	zig build run -- $(ARGS)

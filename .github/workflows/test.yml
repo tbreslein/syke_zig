@@ -1,6 +1,10 @@
 name: main
 run-name: main
-on: [push]
+on:
+  workflow_call:
+  push:
+    tags-ignore:
+      - v0*
 jobs:
   test:
     runs-on: ubuntu-latest
