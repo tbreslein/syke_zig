@@ -4,11 +4,6 @@ const Args = @import("args.zig").Args;
 const Logger = @import("logger.zig").Logger;
 const Allocator = std.mem.Allocator;
 
-const ShellMap: type = [Config.Shell.n_hooks]std.ArrayList(Config.Shell);
-fn shellmap_init(allocator: Allocator) ShellMap {
-    return .{std.ArrayList(Config.Shell).init(allocator)} ** Config.Shell.n_hooks;
-}
-
 pub const Config = struct {
     symlinks: []Symlink = &[_]Symlink{},
     repos: []Repo = &[_]Repo{},
@@ -55,7 +50,8 @@ pub const Config = struct {
         cmd: []const []const u8,
         level: Level = .user,
         hook: Hook = .{},
-        const Hook = struct {
+
+        pub const Hook = struct {
             when: When = .after,
             what: What = .main,
             const When = enum { before, after };
@@ -63,7 +59,7 @@ pub const Config = struct {
 
             fn validate(_: @This(), _: *Logger) !void {}
 
-            fn to_int(self: @This()) HookSize {
+            pub fn to_int(self: @This()) HookSize {
                 return @as(HookSize, @intFromEnum(self.when)) | (@as(HookSize, @intFromEnum(self.what)) << 1);
             }
             fn from_int(x: HookSize) @This() {
@@ -81,6 +77,28 @@ pub const Config = struct {
         };
 
         fn validate(_: @This(), _: *Logger) !void {}
+    };
+
+    pub const ShellMap = struct {
+        data: [Shell.n_hooks]std.ArrayList(Shell),
+
+        const Self = @This();
+
+        fn init(allocator: Allocator) Self {
+            return .{ .data = .{std.ArrayList(Shell).init(allocator)} ** Shell.n_hooks };
+        }
+
+        fn deinit(self: *Self) void {
+            for (self.data) |d| d.deinit();
+        }
+
+        fn append(self: *Self, s: Shell) !void {
+            try self.data[s.hook.to_int()].append(s);
+        }
+
+        pub fn has_hook(self: Self, hook: Shell.Hook) bool {
+            return self.data[hook.to_int()].items.len > 0;
+        }
     };
 
     pub fn init(args: Args, logger: *Logger, allocator: Allocator) !@This() {
@@ -233,7 +251,7 @@ pub fn parseFromLua(comptime t: type, allocator: Allocator, logger: *Logger, lua
                     }
                 },
 
-                ?ShellMap => {
+                ?Config.ShellMap => {
                     // NOTE: no need to explicitly handle .nil, since we already
                     // do that up top
                     if (lua_type == .table) {
@@ -241,15 +259,14 @@ pub fn parseFromLua(comptime t: type, allocator: Allocator, logger: *Logger, lua
                         const n: usize = @intCast(try lua.toInteger(-1));
                         lua.pop(1);
 
-                        var arr: ShellMap = shellmap_init(allocator);
+                        var sm: Config.ShellMap = Config.ShellMap.init(allocator);
                         for (0..n) |i| {
                             _ = lua.getIndex(-1, @intCast(i + 1));
                             defer lua.pop(1);
                             const s = try parseFromLua(Config.Shell, allocator, logger, lua);
-                            const hook_idx = s.hook.to_int();
-                            try arr[hook_idx].append(s);
+                            try sm.append(s);
                         }
-                        @field(x, field.name) = arr;
+                        @field(x, field.name) = sm;
                     } else {
                         try logger.err(
                             "Error while parsing type {s}. Field {s} was set to type {s}, but expected type table.",
@@ -477,7 +494,7 @@ test "parse shell successful" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     const allocator = arena.allocator();
     defer _ = arena.deinit();
-    var shellmap = shellmap_init(allocator);
+    var shellmap = Config.ShellMap.init(allocator);
     const cmds: []const Config.Shell = &.{
         .{
             .cmd = &.{"ls"},
@@ -495,8 +512,7 @@ test "parse shell successful" {
         },
     };
     for (cmds) |c| {
-        const hook_idx = c.hook.to_int();
-        try shellmap[hook_idx].append(c);
+        try shellmap.append(c);
     }
     try std.testing.expectEqualDeep(
         Config{ .shell = shellmap },
