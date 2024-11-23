@@ -15,36 +15,54 @@ pub const Command = enum {
     // services,
 };
 
-pub fn run_commands(args: Args, config: Config, allocator: Allocator, logger: *Logger) !void {
-    try run_hook(config.shell, .{ .when = .before, .what = .main }, args.dry_run, allocator, logger);
+const CommandArgs = struct {
+    shell_map: ?Config.ShellMap,
+    dry_run: bool,
+    allocator: Allocator,
+    logger: *Logger,
+};
+
+pub fn run_commands(
+    args: Args,
+    config: Config,
+    allocator: Allocator,
+    logger: *Logger,
+) !void {
+    const command_args = CommandArgs{
+        .shell_map = config.shell,
+        .dry_run = args.dry_run,
+        .allocator = allocator,
+        .logger = logger,
+    };
+    try run_hook(.{ .when = .before, .what = .main }, command_args);
 
     for (args.commands) |c| {
         switch (c) {
-            .ln => try ln(config.symlinks, config.shell, args.dry_run, allocator, logger),
-            .repos => try repos(config.repos, config.shell, args.dry_run, allocator, logger),
+            .ln => try ln(config.symlinks, command_args),
+            .repos => try repos(config.repos, command_args),
             .shell => {},
             .sync => {
                 try logger.newContext("sync");
                 defer logger.contextFinish() catch {};
-                try ln(config.symlinks, config.shell, args.dry_run, allocator, logger);
-                try repos(config.repos, config.shell, args.dry_run, allocator, logger);
+                try ln(config.symlinks, command_args);
+                try repos(config.repos, command_args);
             },
         }
     }
 
-    try run_hook(config.shell, .{ .when = .after, .what = .main }, args.dry_run, allocator, logger);
+    try run_hook(.{ .when = .after, .what = .main }, command_args);
 }
 
 const CommandError = error{
     ChildProcessError,
 };
 
-fn run_hook(shell_map: ?Config.ShellMap, hook: Config.Shell.Hook, dry_run: bool, allocator: Allocator, logger: *Logger) !void {
-    if (shell_map == null or !shell_map.?.has_hook(hook))
+fn run_hook(hook: Config.Shell.Hook, args: CommandArgs) !void {
+    if (args.shell_map == null or !args.shell_map.?.has_hook(hook))
         return;
 
-    for (shell_map.?.data[hook.to_int()].items) |s|
-        try shell(s, dry_run, allocator, logger);
+    for (args.shell_map.?.data[hook.to_int()].items) |s|
+        try shell(s, args);
 }
 
 fn generic_run(args: anytype, logger: *Logger) !Child.RunResult {
@@ -67,41 +85,41 @@ fn generic_run(args: anytype, logger: *Logger) !Child.RunResult {
     return res;
 }
 
-fn ln(symlinks: []Config.Symlink, shell_map: ?Config.ShellMap, dry_run: bool, allocator: Allocator, logger: *Logger) !void {
-    try logger.newContext(@src().fn_name);
-    defer logger.contextFinish() catch {};
-    try run_hook(shell_map, .{ .when = .before, .what = .ln }, dry_run, allocator, logger);
+fn ln(symlinks: []Config.Symlink, args: CommandArgs) !void {
+    try args.logger.newContext(@src().fn_name);
+    defer args.logger.contextFinish() catch {};
+    try run_hook(.{ .when = .before, .what = .ln }, args);
 
     for (symlinks) |sl| {
         if (sl.absent) {
-            if (logger.verbose)
-                try logger.info("Removing symlink: {s}", .{sl.target});
+            if (args.logger.verbose)
+                try args.logger.info("Removing symlink: {s}", .{sl.target});
 
             const cwd = std.fs.cwd();
             if (cwd.statFile(sl.target)) |_| {
                 var buffer: [256]u8 = undefined;
                 _ = cwd.readLink(sl.target, &buffer) catch |err| switch (err) {
                     error.NotLink => {
-                        try logger.err(
+                        try args.logger.err(
                             "File is not a symlink: {s}; Ignoring.",
                             .{sl.target},
                         );
                         continue;
                     },
                     else => {
-                        try logger.err(
+                        try args.logger.err(
                             "Unexpected error while trying to remove symlink: {s}; error = {}",
                             .{ sl.target, err },
                         );
                         return err;
                     },
                 };
-                if (!dry_run)
+                if (!args.dry_run)
                     try cwd.deleteFile(sl.target);
             } else |err| switch (err) {
                 error.FileNotFound => {
-                    if (logger.verbose)
-                        try logger.info(
+                    if (args.logger.verbose)
+                        try args.logger.info(
                             "File already absent: {s}",
                             .{sl.target},
                         );
@@ -110,43 +128,43 @@ fn ln(symlinks: []Config.Symlink, shell_map: ?Config.ShellMap, dry_run: bool, al
                 else => return err,
             }
         } else {
-            if (logger.verbose)
-                try logger.info("{s} -> {s}", .{ sl.source, sl.target });
-            if (!dry_run) {
+            if (args.logger.verbose)
+                try args.logger.info("{s} -> {s}", .{ sl.source, sl.target });
+            if (!args.dry_run) {
                 try std.fs.cwd().makePath(std.fs.path.dirname(sl.target).?);
-                try std.fs.atomicSymLink(allocator, sl.source, sl.target);
+                try std.fs.atomicSymLink(args.allocator, sl.source, sl.target);
             }
         }
     }
-    try run_hook(shell_map, .{ .when = .after, .what = .ln }, dry_run, allocator, logger);
+    try run_hook(.{ .when = .after, .what = .ln }, args);
 }
 
-fn repos(repositories: []Config.Repo, shell_map: ?Config.ShellMap, dry_run: bool, allocator: Allocator, logger: *Logger) !void {
-    try logger.newContext(@src().fn_name);
-    defer logger.contextFinish() catch {};
-    try run_hook(shell_map, .{ .when = .before, .what = .repos }, dry_run, allocator, logger);
+fn repos(repositories: []Config.Repo, args: CommandArgs) !void {
+    try args.logger.newContext(@src().fn_name);
+    defer args.logger.contextFinish() catch {};
+    try run_hook(.{ .when = .before, .what = .repos }, args);
 
     // TODO: run this in separate threads
     for (repositories) |repo| {
         const dir = std.fs.openDirAbsolute(repo.path, .{}) catch |err| switch (err) {
             error.FileNotFound => {
                 _ = generic_run(.{
-                    .allocator = allocator,
+                    .allocator = args.allocator,
                     .argv = &.{ "git", "clone", repo.remote, repo.path },
-                }, logger) catch {};
+                }, args.logger) catch {};
                 continue;
             },
             else => return err,
         };
 
         const git_remote = generic_run(.{
-            .allocator = allocator,
+            .allocator = args.allocator,
             .argv = &.{ "git", "remote", "-v" },
             .cwd_dir = dir,
-        }, logger) catch continue;
+        }, args.logger) catch continue;
 
         if (git_remote.stdout.len == 0) {
-            try logger.err(
+            try args.logger.err(
                 "Found git repository at {s}, but it has no remotes set up",
                 .{repo.path},
             );
@@ -155,7 +173,7 @@ fn repos(repositories: []Config.Repo, shell_map: ?Config.ShellMap, dry_run: bool
 
         const remote_starts_at = std.mem.indexOf(u8, git_remote.stdout, "\t").? + 1;
         if (!std.mem.startsWith(u8, git_remote.stdout[remote_starts_at..], repo.remote)) {
-            try logger.err(
+            try args.logger.err(
                 "Found git repository at {s}, but it is pointing not pointing at remote {s}. 'git remote -v' output:\n{s}",
                 .{
                     repo.path,
@@ -167,12 +185,12 @@ fn repos(repositories: []Config.Repo, shell_map: ?Config.ShellMap, dry_run: bool
         }
 
         const git_status = generic_run(.{
-            .allocator = allocator,
+            .allocator = args.allocator,
             .argv = &.{ "git", "status", "--porcelain=v1" },
             .cwd_dir = dir,
-        }, logger) catch continue;
+        }, args.logger) catch continue;
         if (git_status.stdout.len > 1) {
-            try logger.warn(
+            try args.logger.warn(
                 "Repo at {s} contains uncommited changes. Skipping pull.",
                 .{repo.path},
             );
@@ -180,24 +198,24 @@ fn repos(repositories: []Config.Repo, shell_map: ?Config.ShellMap, dry_run: bool
         }
 
         const git_pull = generic_run(.{
-            .allocator = allocator,
+            .allocator = args.allocator,
             .argv = &.{ "git", "pull" },
             .cwd_dir = dir,
-        }, logger) catch continue;
-        try logger.info("git pull @{s} stdout: {s}", .{ repo.path, git_pull.stdout[0 .. git_pull.stdout.len - 2] });
+        }, args.logger) catch continue;
+        try args.logger.info("git pull @{s} stdout: {s}", .{ repo.path, git_pull.stdout[0 .. git_pull.stdout.len - 2] });
     }
 
-    try run_hook(shell_map, .{ .when = .after, .what = .repos }, dry_run, allocator, logger);
+    try run_hook(.{ .when = .after, .what = .repos }, args);
 }
 
-fn shell(cmd: Config.Shell, dry_run: bool, allocator: Allocator, logger: *Logger) !void {
-    try logger.newContext(@src().fn_name);
-    defer logger.contextFinish() catch {};
-    if (!dry_run) {
-        const res = try generic_run(.{ .allocator = allocator, .argv = cmd.cmd }, logger);
+fn shell(cmd: Config.Shell, args: CommandArgs) !void {
+    try args.logger.newContext(@src().fn_name);
+    defer args.logger.contextFinish() catch {};
+    if (!args.dry_run) {
+        const res = try generic_run(.{ .allocator = args.allocator, .argv = cmd.cmd }, args.logger);
         if (res.stdout.len > 0) {
-            const process_name = try std.mem.join(allocator, " ", cmd.cmd);
-            try logger.info("Stdout from running '{s}':\n{s}", .{ process_name, res.stdout });
+            const process_name = try std.mem.join(args.allocator, " ", cmd.cmd);
+            try args.logger.info("Stdout from running '{s}':\n{s}", .{ process_name, res.stdout });
         }
     }
 }
