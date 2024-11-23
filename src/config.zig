@@ -4,13 +4,16 @@ const Args = @import("args.zig").Args;
 const Logger = @import("logger.zig").Logger;
 const Allocator = std.mem.Allocator;
 
+const ShellMap: type = [Config.Shell.n_hooks]std.ArrayList(Config.Shell);
+fn shellmap_init(allocator: Allocator) ShellMap {
+    return .{std.ArrayList(Config.Shell).init(allocator)} ** Config.Shell.n_hooks;
+}
+
 pub const Config = struct {
     symlinks: []Symlink = &[_]Symlink{},
     repos: []Repo = &[_]Repo{},
     services: []Service = &[_]Service{},
-    // shell: []Shell = &[_]Shell{},
-    shell: ?[Shell.n_hooks]std.ArrayList(Shell) = null,
-    // current_ctx_stack: std.ArrayList(Ctx),
+    shell: ?ShellMap = null,
 
     pub const Symlink = struct {
         source: []const u8 = "",
@@ -60,19 +63,22 @@ pub const Config = struct {
 
             fn validate(_: @This(), _: *Logger) !void {}
 
-            fn to_int(self: @This()) usize {
-                return @intFromEnum(self.when) | (@intFromEnum(self.what) << 1);
+            fn to_int(self: @This()) HookSize {
+                return @as(HookSize, @intFromEnum(self.when)) | (@as(HookSize, @intFromEnum(self.what)) << 1);
             }
-            fn from_int(x: usize) @This() {
-                // 111....1110
-                const foo = @bitReverse(@as(usize, 0)) ^ 1;
-                const when: When = @enumFromInt(foo & x);
+            fn from_int(x: HookSize) @This() {
+                const when: When = @enumFromInt(x & 1);
                 const what: What = @enumFromInt(x >> 1);
                 return .{ .when = when, .what = what };
             }
         };
 
-        const n_hooks: usize = @typeInfo(Hook.What).Enum.fields.len * @typeInfo(Hook.When).Enum.fields.len;
+        const HookSize: type = u4;
+        const n_hooks: HookSize = blk: {
+            const s = @typeInfo(Hook.What).Enum.fields.len * @typeInfo(Hook.When).Enum.fields.len;
+            std.debug.assert(s < 16);
+            break :blk s;
+        };
 
         fn validate(_: @This(), _: *Logger) !void {}
     };
@@ -227,7 +233,7 @@ pub fn parseFromLua(comptime t: type, allocator: Allocator, logger: *Logger, lua
                     }
                 },
 
-                ?[Config.Shell.n_hooks]std.ArrayList(Config.Shell) => {
+                ?ShellMap => {
                     // NOTE: no need to explicitly handle .nil, since we already
                     // do that up top
                     if (lua_type == .table) {
@@ -235,12 +241,12 @@ pub fn parseFromLua(comptime t: type, allocator: Allocator, logger: *Logger, lua
                         const n: usize = @intCast(try lua.toInteger(-1));
                         lua.pop(1);
 
-                        var arr: [Config.Shell.n_hooks]std.ArrayList(Config.Shell) = .{std.ArrayList(Config.Shell).init(allocator)} ** Config.Shell.n_hooks;
+                        var arr: ShellMap = shellmap_init(allocator);
                         for (0..n) |i| {
                             _ = lua.getIndex(-1, @intCast(i + 1));
                             defer lua.pop(1);
                             const s = try parseFromLua(Config.Shell, allocator, logger, lua);
-                            const hook_idx = @intFromEnum(s.hook.when) | (@intFromEnum(s.hook.what) << 1);
+                            const hook_idx = s.hook.to_int();
                             try arr[hook_idx].append(s);
                         }
                         @field(x, field.name) = arr;
@@ -467,46 +473,51 @@ test "hook to int and back" {
     }
 }
 
-// test "parse shell successful" {
-//     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-//     const allocator = arena.allocator();
-//     defer _ = arena.deinit();
-//     const cmds: []const Config.Shell = &.{
-//         .{
-//             .cmd = &.{"ls"},
-//             .level = .user,
-//             .hook = .{ .when = .after, .what = .main },
-//         },
-//         .{
-//             .cmd = &.{ "echo", "hey", "there" },
-//             .hook = .{ .when = .before, .what = .pkgs },
-//         },
-//         .{
-//             .cmd = &.{ "ls", "/" },
-//             .level = .root,
-//             .hook = .{ .when = .before, .what = .main },
-//         },
-//     };
-//     try std.testing.expectEqualDeep(
-//         Config{ .shell = @constCast(cmds) },
-//         test_runner(allocator, false,
-//             \\ return { shell = {
-//             \\ {
-//             \\     cmd = {"ls"},
-//             \\     level = "user",
-//             \\     hook = { when = "after", what = "main" },
-//             \\ },
-//             \\ {
-//             \\     cmd = { "echo", "hey", "there" },
-//             \\     hook = { when = "before", what = "pkgs" },
-//             \\ },
-//             \\ {
-//             \\     cmd = { "ls", "/" },
-//             \\     level = "root",
-//             \\     hook = { when = "before", what = "main" },
-//             \\ },
-//             \\ }}
-//             \\
-//         ),
-//     );
-// }
+test "parse shell successful" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    const allocator = arena.allocator();
+    defer _ = arena.deinit();
+    var shellmap = shellmap_init(allocator);
+    const cmds: []const Config.Shell = &.{
+        .{
+            .cmd = &.{"ls"},
+            .level = .user,
+            .hook = .{ .when = .after, .what = .main },
+        },
+        .{
+            .cmd = &.{ "echo", "hey", "there" },
+            .hook = .{ .when = .before, .what = .pkgs },
+        },
+        .{
+            .cmd = &.{ "ls", "/" },
+            .level = .root,
+            .hook = .{ .when = .before, .what = .main },
+        },
+    };
+    for (cmds) |c| {
+        const hook_idx = c.hook.to_int();
+        try shellmap[hook_idx].append(c);
+    }
+    try std.testing.expectEqualDeep(
+        Config{ .shell = shellmap },
+        test_runner(allocator, false,
+            \\ return { shell = {
+            \\ {
+            \\     cmd = {"ls"},
+            \\     level = "user",
+            \\     hook = { when = "after", what = "main" },
+            \\ },
+            \\ {
+            \\     cmd = { "echo", "hey", "there" },
+            \\     hook = { when = "before", what = "pkgs" },
+            \\ },
+            \\ {
+            \\     cmd = { "ls", "/" },
+            \\     level = "root",
+            \\     hook = { when = "before", what = "main" },
+            \\ },
+            \\ }}
+            \\
+        ),
+    );
+}
