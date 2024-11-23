@@ -1,4 +1,4 @@
-const Args = @import("args.zig").Args;
+const CLI = @import("cli.zig").CLI;
 const Config = @import("config.zig").Config;
 const Logger = @import("logger.zig").Logger;
 const std = @import("std");
@@ -15,28 +15,32 @@ pub const Command = enum {
     // services,
 };
 
-const CommandArgs = struct {
+const Args = struct {
     shell_map: ?Config.ShellMap,
     dry_run: bool,
     allocator: Allocator,
     logger: *Logger,
 };
 
+const CommandError = error{
+    ChildProcessError,
+};
+
 pub fn run_commands(
-    args: Args,
+    cli: CLI,
     config: Config,
     allocator: Allocator,
     logger: *Logger,
 ) !void {
-    const command_args = CommandArgs{
+    const command_args = Args{
         .shell_map = config.shell,
-        .dry_run = args.dry_run,
+        .dry_run = cli.dry_run,
         .allocator = allocator,
         .logger = logger,
     };
     try run_hook(.{ .when = .before, .what = .main }, command_args);
 
-    for (args.commands) |c| {
+    for (cli.commands) |c| {
         switch (c) {
             .ln => try ln(config.symlinks, command_args),
             .repos => try repos(config.repos, command_args),
@@ -53,11 +57,7 @@ pub fn run_commands(
     try run_hook(.{ .when = .after, .what = .main }, command_args);
 }
 
-const CommandError = error{
-    ChildProcessError,
-};
-
-fn run_hook(hook: Config.Shell.Hook, args: CommandArgs) !void {
+fn run_hook(hook: Config.Shell.Hook, args: Args) !void {
     if (args.shell_map == null or !args.shell_map.?.has_hook(hook))
         return;
 
@@ -65,10 +65,21 @@ fn run_hook(hook: Config.Shell.Hook, args: CommandArgs) !void {
         try shell(s, args);
 }
 
-fn generic_run(args: anytype, logger: *Logger) !Child.RunResult {
-    const res = Child.run(args) catch |err| {
+fn generic_run(args: struct {
+    allocator: Allocator,
+    argv: []const []const u8,
+    cwd: ?[]const u8 = null,
+    cwd_dir: ?std.fs.Dir = null,
+    logger: *Logger,
+}) !Child.RunResult {
+    const res = Child.run(.{
+        .allocator = args.allocator,
+        .argv = args.argv,
+        .cwd = args.cwd,
+        .cwd_dir = args.cwd_dir,
+    }) catch |err| {
         const process_name = try std.mem.join(args.allocator, " ", args.argv);
-        try logger.err(
+        try args.logger.err(
             "Unable to spawn process '{s}'. error: {any}",
             .{ process_name, err },
         );
@@ -76,7 +87,7 @@ fn generic_run(args: anytype, logger: *Logger) !Child.RunResult {
     };
     if (res.term.Exited > 0) {
         const process_name = try std.mem.join(args.allocator, " ", args.argv);
-        try logger.err(
+        try args.logger.err(
             "Encountered error while running '{s}'. exit code: {}; stderr: {s}",
             .{ process_name, res.term.Exited, res.stderr },
         );
@@ -85,7 +96,7 @@ fn generic_run(args: anytype, logger: *Logger) !Child.RunResult {
     return res;
 }
 
-fn ln(symlinks: []Config.Symlink, args: CommandArgs) !void {
+fn ln(symlinks: []Config.Symlink, args: Args) !void {
     try args.logger.newContext(@src().fn_name);
     defer args.logger.contextFinish() catch {};
     try run_hook(.{ .when = .before, .what = .ln }, args);
@@ -139,7 +150,7 @@ fn ln(symlinks: []Config.Symlink, args: CommandArgs) !void {
     try run_hook(.{ .when = .after, .what = .ln }, args);
 }
 
-fn repos(repositories: []Config.Repo, args: CommandArgs) !void {
+fn repos(repositories: []Config.Repo, args: Args) !void {
     try args.logger.newContext(@src().fn_name);
     defer args.logger.contextFinish() catch {};
     try run_hook(.{ .when = .before, .what = .repos }, args);
@@ -151,7 +162,8 @@ fn repos(repositories: []Config.Repo, args: CommandArgs) !void {
                 _ = generic_run(.{
                     .allocator = args.allocator,
                     .argv = &.{ "git", "clone", repo.remote, repo.path },
-                }, args.logger) catch {};
+                    .logger = args.logger,
+                }) catch {};
                 continue;
             },
             else => return err,
@@ -161,7 +173,8 @@ fn repos(repositories: []Config.Repo, args: CommandArgs) !void {
             .allocator = args.allocator,
             .argv = &.{ "git", "remote", "-v" },
             .cwd_dir = dir,
-        }, args.logger) catch continue;
+            .logger = args.logger,
+        }) catch continue;
 
         if (git_remote.stdout.len == 0) {
             try args.logger.err(
@@ -188,7 +201,8 @@ fn repos(repositories: []Config.Repo, args: CommandArgs) !void {
             .allocator = args.allocator,
             .argv = &.{ "git", "status", "--porcelain=v1" },
             .cwd_dir = dir,
-        }, args.logger) catch continue;
+            .logger = args.logger,
+        }) catch continue;
         if (git_status.stdout.len > 1) {
             try args.logger.warn(
                 "Repo at {s} contains uncommited changes. Skipping pull.",
@@ -201,18 +215,19 @@ fn repos(repositories: []Config.Repo, args: CommandArgs) !void {
             .allocator = args.allocator,
             .argv = &.{ "git", "pull" },
             .cwd_dir = dir,
-        }, args.logger) catch continue;
+            .logger = args.logger,
+        }) catch continue;
         try args.logger.info("git pull @{s} stdout: {s}", .{ repo.path, git_pull.stdout[0 .. git_pull.stdout.len - 2] });
     }
 
     try run_hook(.{ .when = .after, .what = .repos }, args);
 }
 
-fn shell(cmd: Config.Shell, args: CommandArgs) !void {
+fn shell(cmd: Config.Shell, args: Args) !void {
     try args.logger.newContext(@src().fn_name);
     defer args.logger.contextFinish() catch {};
     if (!args.dry_run) {
-        const res = try generic_run(.{ .allocator = args.allocator, .argv = cmd.cmd }, args.logger);
+        const res = try generic_run(.{ .allocator = args.allocator, .argv = cmd.cmd, .logger = args.logger });
         if (res.stdout.len > 0) {
             const process_name = try std.mem.join(args.allocator, " ", cmd.cmd);
             try args.logger.info("Stdout from running '{s}':\n{s}", .{ process_name, res.stdout });

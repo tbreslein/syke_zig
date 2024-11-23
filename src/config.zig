@@ -1,6 +1,6 @@
 const std = @import("std");
 const Lua = @import("ziglua").Lua;
-const Args = @import("args.zig").Args;
+const CLI = @import("cli.zig").CLI;
 const Logger = @import("logger.zig").Logger;
 const Allocator = std.mem.Allocator;
 
@@ -50,6 +50,7 @@ pub const Config = struct {
         cmd: []const []const u8,
         level: Level = .user,
         hook: Hook = .{},
+        cwd: ?[]const u8 = null,
 
         pub const Hook = struct {
             when: When = .after,
@@ -101,7 +102,7 @@ pub const Config = struct {
         }
     };
 
-    pub fn init(args: Args, logger: *Logger, allocator: Allocator) !@This() {
+    pub fn init(cli: CLI, logger: *Logger, allocator: Allocator) !@This() {
         if (logger.verbose) try logger.newContext("parse lua config");
 
         var lua = try Lua.init(allocator);
@@ -114,17 +115,17 @@ pub const Config = struct {
         const package_load_string = try std.fmt.allocPrintZ(
             allocator,
             "package.path = '{s}/?.lua;' .. package.path",
-            .{args.lua_path},
+            .{cli.lua_path},
         );
         try lua.doString(package_load_string);
 
-        lua.doFile(args.config_file) catch |err| {
+        lua.doFile(cli.config_file) catch |err| {
             try logger.err("{s}", .{try lua.toString(-1)});
             return err;
         };
         var config = try parseFromLua(@This(), allocator, logger, lua);
 
-        if (!args.run_shell) config.shell = null;
+        if (!cli.run_shell) config.shell = null;
 
         if (logger.verbose) try logger.contextFinish();
         return config;

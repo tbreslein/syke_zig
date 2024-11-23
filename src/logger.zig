@@ -1,4 +1,4 @@
-const Args = @import("args.zig").Args;
+const CLI = @import("cli.zig").CLI;
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
@@ -28,15 +28,15 @@ pub const Logger = struct {
         name: []const u8,
     };
 
-    pub fn init(args: Args, allocator: Allocator) @This() {
+    pub fn init(cli: CLI, allocator: Allocator) @This() {
         return .{
-            .color = args.color,
-            .verbose = args.verbose,
+            .color = cli.color,
+            .verbose = cli.verbose,
             .stdout = std.io.getStdOut().writer(),
             .stderr = std.io.getStdErr().writer(),
             .current_ctx_stack = std.ArrayList(Ctx).init(allocator),
-            .quiet = args.quiet,
-            .very_quiet = args.very_quiet,
+            .quiet = cli.quiet,
+            .very_quiet = cli.very_quiet,
         };
     }
 

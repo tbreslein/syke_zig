@@ -3,7 +3,7 @@ const Allocator = std.mem.Allocator;
 const clap = @import("clap");
 const Command = @import("commands.zig").Command;
 
-pub const Args = struct {
+pub const CLI = struct {
     help: bool = false,
     verbose: bool = false,
     color: bool = true,
