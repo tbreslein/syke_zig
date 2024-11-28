@@ -3,7 +3,7 @@ const Allocator = std.mem.Allocator;
 const clap = @import("clap");
 const Command = @import("commands.zig").Command;
 
-pub const Args = struct {
+pub const CLI = struct {
     help: bool = false,
     verbose: bool = false,
     color: bool = true,
@@ -13,6 +13,7 @@ pub const Args = struct {
     commands: []const Command = &[_]Command{},
     config_file: [:0]const u8 = @ptrCast(&[_]u8{}),
     lua_path: []const u8 = &[_]u8{},
+    run_shell: bool = false,
 
     const ColorMode = enum { Auto, On, Off };
 
@@ -36,18 +37,47 @@ pub const Args = struct {
         };
 
         var diag = clap.Diagnostic{};
-        var res = clap.parse(clap.Help, &params, parsers, .{
+        const res = clap.parse(clap.Help, &params, parsers, .{
             .diagnostic = &diag,
             .allocator = allocator,
         }) catch |err| {
             try diag.report(std.io.getStdErr().writer(), err);
             return err;
         };
-        defer res.deinit();
+        // defer res.deinit();
 
         const help = res.args.help != 0;
         if (help)
             try clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{});
+
+        var run_shell = res.positionals.len == 0;
+        const commands = blk: {
+            var n_commands = res.positionals.len;
+            var have_sync = false;
+
+            for (res.positionals) |p| {
+                if (p == .sync) {
+                    have_sync = true;
+                    run_shell = true;
+                    n_commands = 1;
+                    break;
+                }
+                if (p == .shell) {
+                    run_shell = true;
+                }
+            }
+
+            var commands = try allocator.alloc(Command, if (n_commands == 0) 1 else n_commands);
+            if (n_commands == 0 or have_sync) {
+                commands[0] = Command.sync;
+                n_commands = 1;
+            } else {
+                for (res.positionals, 0..) |c, i| {
+                    commands[i] = c;
+                }
+            }
+            break :blk commands;
+        };
 
         return @This(){
             .color = blk: {
@@ -75,29 +105,8 @@ pub const Args = struct {
                     break :blk try std.fmt.allocPrint(allocator, "{s}", .{std.fs.path.dirname(c).?});
                 break :blk try std.fmt.allocPrint(allocator, "{s}/.config/syke/lua", .{home});
             },
-            .commands = blk: {
-                var n_commands = res.positionals.len;
-                var have_sync = false;
-
-                for (res.positionals) |p| {
-                    if (p == .sync) {
-                        have_sync = true;
-                        n_commands = 1;
-                        break;
-                    }
-                }
-
-                var commands = try allocator.alloc(Command, if (n_commands == 0) 1 else n_commands);
-                if (n_commands == 0 or have_sync) {
-                    commands[0] = Command.sync;
-                    n_commands = 1;
-                } else {
-                    for (res.positionals, 0..) |c, i| {
-                        commands[i] = c;
-                    }
-                }
-                break :blk commands;
-            },
+            .commands = commands,
+            .run_shell = run_shell,
         };
     }
 };
