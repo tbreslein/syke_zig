@@ -5,6 +5,8 @@ const Logger = @import("logger.zig").Logger;
 const run_commands = @import("commands.zig").run_commands;
 
 // TODO:
+//   - ln absent does not seem to work
+//   - make ln completely declarative (needs some way to store the current config somewhere)
 //   - introduce my own error set
 //   - measure the memory footprint of syke, and if it IS bad, limit memory
 //     usage by using a regular GPA throughout most of the program, and then use
