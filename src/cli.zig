@@ -14,6 +14,7 @@ pub const CLI = struct {
     config_file: [:0]const u8 = @ptrCast(&[_]u8{}),
     lua_path: []const u8 = &[_]u8{},
     run_shell: bool = false,
+    ignore_last_gen: bool = false,
 
     const ColorMode = enum { Auto, On, Off };
 
@@ -24,6 +25,7 @@ pub const CLI = struct {
             \\-d, --dry-run              Only print what syke would be doing, but do not perform any actions. This also enables -v
             \\-q, --quiet                Print nothing to stdout
             \\-Q, --very-quiet           Print nothing to neither stdout nor stderr
+            \\-I, --ignore-last-gen      Ignore last generation and build a new generation without diffing.
             \\--color       <COLOR_MODE> whether to enable colors [options: auto(default), on, off]
             \\-c, --config  <PATH>       Path to the config file; defaults to $XDG_CONFIG_HOME/syke/syke.lua
             \\<COMMAND>...
@@ -94,6 +96,7 @@ pub const CLI = struct {
             .dry_run = res.args.@"dry-run" != 0,
             .quiet = res.args.quiet != 0,
             .very_quiet = res.args.@"very-quiet" != 0,
+            .ignore_last_gen = res.args.@"ignore-last-gen" != 0,
             .verbose = res.args.verbose != 0 or res.args.@"dry-run" != 0,
             .config_file = blk: {
                 if (res.args.config) |c|

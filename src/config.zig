@@ -4,6 +4,92 @@ const CLI = @import("cli.zig").CLI;
 const Logger = @import("logger.zig").Logger;
 const Allocator = std.mem.Allocator;
 
+const generation_prefix = "syke-generation_";
+
+pub const ConfigGen = struct {
+    conf: Config,
+    gen: u32,
+
+    pub fn initFromLua(cli: CLI, logger: *Logger, allocator: Allocator) !@This() {
+        return .{
+            .conf = try Config.initFromLua(cli, logger, allocator),
+            .gen = 0,
+        };
+    }
+
+    pub fn initFromLastGen(_: CLI, logger: *Logger, allocator: Allocator) !@This() {
+        var conf_gen = ConfigGen{ .conf = undefined, .gen = 0 };
+
+        const home = try std.process.getEnvVarOwned(allocator, "HOME");
+        const cache_dir = try std.fmt.allocPrint(allocator, "{s}/.local/cache/syke", .{home});
+        var dir = std.fs.cwd().openDir(cache_dir, .{ .iterate = true }) catch return conf_gen;
+        defer dir.close();
+
+        var dir_iter = dir.iterate();
+        var largest_gen_file: [1024]u8 = undefined;
+        var largest_gen_file_len: usize = 0;
+        var at_least_one_gen = false;
+
+        while (try dir_iter.next()) |d| {
+            if (!std.mem.startsWith(u8, d.name, generation_prefix)) {
+                continue;
+            }
+            at_least_one_gen = true;
+            const gen_idx = 1 + (std.mem.lastIndexOfScalar(u8, d.name, '_') orelse {
+                try logger.err(
+                    "syke-generation file at {s} misspelled; has to contain a _ character",
+                    .{d.name},
+                );
+                return error.LuaError;
+            });
+            const gen = std.fmt.parseUnsigned(u32, d.name[gen_idx..], 10) catch {
+                try logger.err(
+                    "Unable to parse syke generation number from file name {s}",
+                    .{d.name},
+                );
+                return error.LuaError;
+            };
+            if (gen >= conf_gen.gen) {
+                conf_gen.gen = gen;
+                std.mem.copyForwards(u8, &largest_gen_file, d.name);
+                largest_gen_file_len = d.name.len;
+            }
+        }
+
+        if (at_least_one_gen) {
+            var lua = try Lua.init(allocator);
+            // defer lua.deinit();
+
+            const last_gen_file_z = try std.fmt.allocPrintZ(
+                allocator,
+                "{s}/{s}",
+                .{ cache_dir, largest_gen_file[0..largest_gen_file_len] },
+            );
+            lua.doFile(last_gen_file_z) catch |err| {
+                try logger.err("{s}", .{try lua.toString(-1)});
+                return err;
+            };
+            conf_gen.conf = try parseFromLua(Config, allocator, logger, lua);
+        }
+
+        return conf_gen;
+    }
+
+    pub fn dumpToStringLua(self: @This(), logger: *Logger, allocator: Allocator) ![]const u8 {
+        if (logger.verbose) try logger.newContext("dump config into string");
+
+        var string_buffer = std.ArrayList(u8).init(allocator);
+        try string_buffer.appendSlice("return {\n");
+
+        try dumpToLua(Config, self.conf, &string_buffer, logger);
+
+        try string_buffer.appendSlice("}\n");
+
+        if (logger.verbose) try logger.contextFinish();
+        return string_buffer.items;
+    }
+};
+
 pub const Config = struct {
     symlinks: []Symlink = &[_]Symlink{},
     repos: []Repo = &[_]Repo{},
@@ -13,19 +99,8 @@ pub const Config = struct {
     pub const Symlink = struct {
         source: []const u8 = "",
         target: []const u8,
-        absent: bool = false,
 
-        fn validate(self: @This(), logger: *Logger) !void {
-            var found_error = false;
-            if (self.source.len == 0 and !self.absent) {
-                found_error = true;
-                try logger.err(
-                    "symlinks[*].source cannot be empty, unless Symlink.absent == true.",
-                    .{},
-                );
-                return error.LuaError;
-            }
-        }
+        fn validate(_: @This(), _: *Logger) !void {}
     };
 
     pub const Repo = struct {
@@ -102,7 +177,7 @@ pub const Config = struct {
         }
     };
 
-    pub fn init(cli: CLI, logger: *Logger, allocator: Allocator) !@This() {
+    pub fn initFromLua(cli: CLI, logger: *Logger, allocator: Allocator) !@This() {
         if (logger.verbose) try logger.newContext("parse lua config");
 
         var lua = try Lua.init(allocator);
@@ -177,12 +252,77 @@ pub const Config = struct {
     }
 };
 
-pub fn parseFromLua(comptime t: type, allocator: Allocator, logger: *Logger, lua: *Lua) !t {
+pub fn dumpToLua(comptime T: type, x: T, buffer: *std.ArrayList(u8), logger: *Logger) !void {
+    inline for (std.meta.fields(T)) |field| {
+        if (field.type != ?Config.ShellMap) {
+            try buffer.appendSlice(field.name);
+            try buffer.append('=');
+        }
+        switch (field.type) {
+            []const u8 => {
+                try buffer.append('"');
+                try buffer.appendSlice(@field(x, field.name));
+                try buffer.appendSlice("\",\n");
+            },
+            bool => {
+                if (@field(x, field.name)) {
+                    try buffer.appendSlice("true,\n");
+                } else try buffer.appendSlice("false,\n");
+            },
+            []const []const u8 => {
+                for (@field(x, field.name)) |s| {
+                    try buffer.append('"');
+                    try buffer.appendSlice(s);
+                    try buffer.appendSlice("\",\n");
+                }
+            },
+            ?Config.ShellMap => {
+                // this is skipped, because shell commands aren't declarative
+            },
+            else => {
+                const type_info = @typeInfo(field.type);
+                switch (type_info) {
+                    .Struct => {
+                        try buffer.appendSlice("{\n");
+                        try dumpToLua(field.type, @field(x, field.name), buffer, logger);
+                        try buffer.appendSlice("},\n");
+                    },
+                    .Pointer => {
+                        try buffer.appendSlice("{\n");
+
+                        const elem_type: type = std.meta.Elem(field.type);
+                        for (@field(x, field.name)) |y| {
+                            try buffer.appendSlice("{\n");
+                            try dumpToLua(elem_type, y, buffer, logger);
+                            try buffer.appendSlice("},\n");
+                        }
+
+                        try buffer.appendSlice("},\n");
+                    },
+                    .Enum => {
+                        try buffer.append('"');
+                        try buffer.appendSlice(@tagName(@field(x, field.name)));
+                        try buffer.appendSlice("\",\n");
+                    },
+                    else => {
+                        try logger.err(
+                            "Unable to dump type {s} to string",
+                            .{@typeName(field.type)},
+                        );
+                        return error.LuaError;
+                    },
+                }
+            },
+        }
+    }
+}
+
+pub fn parseFromLua(comptime T: type, allocator: Allocator, logger: *Logger, lua: *Lua) !T {
     if (lua.getTop() == 0) {
         return error.LuaError;
     }
-    var x: t = undefined;
-    inline for (std.meta.fields(t)) |field| {
+    var x: T = undefined;
+    inline for (std.meta.fields(T)) |field| {
         const lua_type = lua.getField(-1, field.name);
         defer lua.pop(1);
         if (lua_type == .nil) {
@@ -193,7 +333,7 @@ pub fn parseFromLua(comptime t: type, allocator: Allocator, logger: *Logger, lua
             } else {
                 try logger.err(
                     "Error while parsing type {s}. Field {s}.{s} cannot be nil.",
-                    .{ @typeName(t), @typeName(t), field.name },
+                    .{ @typeName(T), @typeName(T), field.name },
                 );
                 return error.LuaError;
             }
